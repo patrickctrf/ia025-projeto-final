@@ -1,76 +1,19 @@
 import itertools
 from multiprocessing.dummy import Pool as ThreadPool
-from os import listdir
-from os.path import join, isfile, splitext
 
 import numpy as np
 import torch
 from pandas import read_csv
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import StandardScaler
 from torch import from_numpy, cat
-from torch.nn.utils.rnn import pack_sequence
 from torch.utils.data import Dataset, DataLoader
-from torch.utils.data.dataset import T_co
 from tqdm import tqdm
-
-from ptk.timeseries import timeseries_split
 
 # Specifying which modules to import when "import *" is called over this module.
 # Also avoiding to import the smae things this module imports
-__all__ = ["PackingSequenceDataloader", "AsymetricalTimeseriesDataset", "BatchTimeseriesDataset", "CustomDataLoader", "PlotLstmDataset", "ParallelBatchTimeseriesDataset", "ImageDataset"]
+__all__ = ["AsymetricalTimeseriesDataset", "BatchTimeseriesDataset", "ParallelBatchTimeseriesDataset", "CustomDataLoader"]
 
-from ptk.utils.numpytools import find_nearest, quaternion_into_axis_angle, axis_angle_into_rotation_matrix, rotation_matrix_into_axis_angle, axis_angle_into_quaternion
-
-
-class PackingSequenceDataloader(object):
-    def __init__(self, dataset, batch_size=1, shuffle=False):
-        """
-Utility class for loading data with input already formated as packed sequences
-(for PyTorch LSTMs, for example).
-
-        :param dataset: PyTorch-like Dataset to load.
-        :param batch_size: Mini batch size.
-        :param shuffle: Shuffle data.
-        """
-        super().__init__()
-        self.dataset = dataset
-        self.batch_size = batch_size
-        self.shuffle = shuffle
-
-        # Esta equacao apenas ARREDONDA a quantidade de mini-batches para CIMA
-        # Quando o resultado da divisao nao eh inteiro (sobra resto), significa
-        # apenas que o ultimo batch sera menor que os demais
-        self.length = len(dataset) // self.batch_size + (len(dataset) % self.batch_size > 0)
-
-        self.shuffle_array = np.arange(self.length)
-        if shuffle is True: np.random.shuffle(self.shuffle_array)
-
-    def __iter__(self):
-        """
-Returns an iterable of itself.
-
-        :return: Iterable around this class.
-        """
-        self.counter = 0
-        return self
-
-    def __next__(self):
-        """
-Intended to be used as iterator.
-
-        :return: Tuple containing (input packed sequence, output targets)
-        """
-        if self.counter >= self.length:
-            raise StopIteration()
-
-        mini_batch_input = pack_sequence(self.dataset[self.shuffle_array[self.counter:self.counter + self.batch_size]][0], enforce_sorted=False)
-        mini_batch_output = torch.stack(self.dataset[self.shuffle_array[self.counter:self.counter + self.batch_size]][1])
-        self.counter = self.counter + 1
-
-        return mini_batch_input, mini_batch_output
-
-    def __len__(self):
-        return self.length
+from ptk.utils.numpytools import find_nearest, axis_angle_into_quaternion, rotation_matrix_into_axis_angle, axis_angle_into_rotation_matrix, quaternion_into_axis_angle
 
 
 class AsymetricalTimeseriesDataset(Dataset):
@@ -470,81 +413,3 @@ class CustomDataLoader(object):
         # Discard batch dimension, since dataloader is going to add this anyway
         return next_sample[0].view(next_sample[0].shape[1:]), \
                next_sample[1].view(next_sample[1].shape[1:])
-
-
-class PlotLstmDataset(Dataset):
-    def __init__(self, x_csv_path, y_csv_path, max_window_size=200, min_window_size=10, convert_first=False, device=torch.device("cpu"), shuffle=True, offset=40, zeros_tuple=(1, 1, 20)):
-        super().__init__()
-        self.input_data = read_csv(x_csv_path).to_numpy()
-        self.output_data = read_csv(y_csv_path).to_numpy()
-        self.min_window_size = min_window_size
-        self.convert_first = convert_first
-        self.device = device
-        self.zeros_tuple = zeros_tuple
-
-        # =========SCALING======================================================
-        # features without timestamp (we do not scale timestamp)
-        input_features = self.input_data[:, 1:]
-        output_features = self.output_data[:, 1:]
-
-        # Scaling data
-        self.input_scaler = StandardScaler()
-        input_features = self.input_scaler.fit_transform(input_features)
-        self.output_scaler = MinMaxScaler()
-        output_features = self.output_scaler.fit_transform(output_features)
-
-        # Replacing scaled data (we kept the original TIMESTAMP)
-        self.input_data[:, 1:] = input_features
-        self.output_data[:, 1:] = output_features
-        # =========end-SCALING==================================================
-
-        # Save timestamps for syncing samples.
-        self.input_timestamp = self.input_data[:, 0]
-        self.output_timestamp = self.output_data[:, 0]
-
-        # Throw out timestamp, we are not going to RETURN this.
-        self.input_data = self.input_data[:, 1:]
-        self.output_data = self.output_data[:, 1:]
-
-        self.X, _ = timeseries_split(self.input_data, enable_asymetrical=True)
-
-        self.X = self.X[offset:]
-
-        self.length = self.X.shape[0]
-
-        return
-
-    def __getitem__(self, idx):
-        """
-Get itens from dataset according to idx passed. The return is in numpy arrays.
-
-        :param idx: Index or slice to return.
-        :return: 2 elements or 2 lists (x,y) values, according to idx.
-        """
-
-        if idx >= len(self) or idx < 0:
-            raise IndexError('Index out of range')
-
-        return from_numpy(self.X[idx]), 0
-
-    def __len__(self):
-        return self.length
-
-
-class ImageDataset(Dataset):
-    def __init__(self, imgs_dir_str="/home/patrickctrf/Documentos/ORB_SLAM3/MH04/mav0/cam0/data/"):
-        super().__init__()
-        self.imgs_dir_str = imgs_dir_str
-        self.img_files_names = [f for f in listdir(imgs_dir_str) if isfile(join(self.imgs_dir_str, f))]
-        self.img_files_names.sort()
-        self.length = len(self.img_files_names)
-
-    def __getitem__(self, index):
-        with open(join(self.imgs_dir_str, self.img_files_names[index]), 'rb') as f:
-            img_bytes = bytearray(f.read())
-
-        # return img timestamp and img itself as bytes
-        return int(splitext(self.img_files_names[index])[0]), img_bytes
-
-    def __len__(self):
-        return self.length
