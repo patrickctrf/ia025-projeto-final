@@ -1,14 +1,11 @@
-import numpy as np
 import torch
 from matplotlib import pyplot as plt
-from numpy import arange, random, array
-from pandas import read_csv
+from numpy import arange, array
 from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
 
-from mydatasets import *
-from ptk.timeseries import *
 from models import *
+from mydatasets import *
 
 
 def experiment(device):
@@ -18,8 +15,8 @@ Runs the experiment itself.
     :return: Trained model.
     """
 
-    model = InertialModule(input_size=6, hidden_layer_size=32, n_lstm_units=3, bidirectional=True, use_amp=False,
-                           output_size=7, training_batch_size=512, epochs=5, device=device, validation_percent=0.2)
+    model = InertialModule(input_size=6, hidden_layer_size=32, n_lstm_units=3, bidirectional=True, use_amp=True,
+                           output_size=7, training_batch_size=512, epochs=10, device=device, validation_percent=0.2)
 
     # model.load_state_dict(torch.load("best_model_state_dict.pth"))
     # model = torch.load("best_model.pth")
@@ -31,8 +28,6 @@ Runs the experiment itself.
 
     # ===========PREDICAO-["px", "py", "pz", "qw", "qx", "qy", "qz"]============
     device = torch.device("cpu")
-    # model = InertialModule(input_size=6, hidden_layer_size=32, n_lstm_units=3, bidirectional=True, use_amp=False,
-    #                        output_size=7, training_batch_size=512, epochs=50, device=device, validation_percent=0.2)
     # model.load_state_dict(torch.load("best_model_state_dict.pth"))
     model = torch.load("best_model.pth")
     model.eval()
@@ -105,42 +100,42 @@ if __name__ == '__main__':
     device = torch.device(dev)
 
     euroc_v1_01_dataset = AsymetricalTimeseriesDataset(x_csv_path="dataset-files/V1_01_easy/mav0/imu0/data.csv", y_csv_path="dataset-files/V1_01_easy/mav0/state_groundtruth_estimate0/data.csv",
-                                                       min_window_size=99, max_window_size=100, shuffle=False, noise=None, convert_first=True)
+                                                       min_window_size=200, max_window_size=201, shuffle=False, noise=None, convert_first=True)
 
     # Esse daqui gera NAN no treino e na validacao, melhor nao usar
     euroc_v2_01_dataset = AsymetricalTimeseriesDataset(x_csv_path="dataset-files/V2_01_easy/mav0/imu0/data.csv", y_csv_path="dataset-files/V2_01_easy/mav0/state_groundtruth_estimate0/data.csv",
-                                                       min_window_size=99, max_window_size=100, shuffle=False, noise=None, convert_first=True)
+                                                       min_window_size=200, max_window_size=201, shuffle=False, noise=None, convert_first=True)
 
     euroc_v2_02_dataset = AsymetricalTimeseriesDataset(x_csv_path="dataset-files/V2_02_medium/mav0/imu0/data.csv", y_csv_path="dataset-files/V2_02_medium/mav0/state_groundtruth_estimate0/data.csv",
-                                                       min_window_size=99, max_window_size=100, shuffle=False, noise=None, convert_first=True)
+                                                       min_window_size=200, max_window_size=201, shuffle=False, noise=None, convert_first=True)
 
     euroc_v2_03_dataset = AsymetricalTimeseriesDataset(x_csv_path="dataset-files/V2_03_difficult/mav0/imu0/data.csv",
                                                        y_csv_path="dataset-files/V2_03_difficult/mav0/state_groundtruth_estimate0/data.csv",
-                                                       min_window_size=99, max_window_size=100, shuffle=False, noise=None, convert_first=True)
+                                                       min_window_size=200, max_window_size=201, shuffle=False, noise=None, convert_first=True)
 
     euroc_v1_02_dataset = AsymetricalTimeseriesDataset(x_csv_path="dataset-files/V1_02_medium/mav0/imu0/data.csv", y_csv_path="dataset-files/V1_02_medium/mav0/state_groundtruth_estimate0/data.csv",
-                                                       min_window_size=99, max_window_size=100, shuffle=False, noise=None, convert_first=True)
+                                                       min_window_size=200, max_window_size=201, shuffle=False, noise=None, convert_first=True)
 
     euroc_v1_03_dataset = AsymetricalTimeseriesDataset(x_csv_path="dataset-files/V1_03_difficult/mav0/imu0/data.csv",
                                                        y_csv_path="dataset-files/V1_03_difficult/mav0/state_groundtruth_estimate0/data.csv",
-                                                       min_window_size=99, max_window_size=100, shuffle=False, noise=None, convert_first=True)
+                                                       min_window_size=200, max_window_size=201, shuffle=False, noise=None, convert_first=True)
 
     euroc_mh1_dataset = AsymetricalTimeseriesDataset(x_csv_path="dataset-files/MH_01_easy/mav0/imu0/data.csv", y_csv_path="dataset-files/MH_01_easy/mav0/state_groundtruth_estimate0/data.csv",
-                                                     min_window_size=99, max_window_size=100, shuffle=False, noise=None, convert_first=True)
+                                                     min_window_size=200, max_window_size=201, shuffle=False, noise=None, convert_first=True)
 
     euroc_mh2_dataset = AsymetricalTimeseriesDataset(x_csv_path="dataset-files/MH_02_easy/mav0/imu0/data.csv", y_csv_path="dataset-files/MH_02_easy/mav0/state_groundtruth_estimate0/data.csv",
-                                                     min_window_size=99, max_window_size=100, shuffle=False, noise=None, convert_first=True)
+                                                     min_window_size=200, max_window_size=201, shuffle=False, noise=None, convert_first=True)
 
     euroc_mh3_dataset = AsymetricalTimeseriesDataset(x_csv_path="dataset-files/MH_03_medium/mav0/imu0/data.csv", y_csv_path="dataset-files/MH_03_medium/mav0/state_groundtruth_estimate0/data.csv",
-                                                     min_window_size=99, max_window_size=100, shuffle=False, noise=None, convert_first=True)
+                                                     min_window_size=200, max_window_size=201, shuffle=False, noise=None, convert_first=True)
 
     euroc_mh4_dataset = AsymetricalTimeseriesDataset(x_csv_path="dataset-files/MH_04_difficult/mav0/imu0/data.csv",
                                                      y_csv_path="dataset-files/MH_04_difficult/mav0/state_groundtruth_estimate0/data.csv",
-                                                     min_window_size=99, max_window_size=100, shuffle=False, noise=None, convert_first=True)
+                                                     min_window_size=200, max_window_size=201, shuffle=False, noise=None, convert_first=True)
 
     euroc_mh5_dataset = AsymetricalTimeseriesDataset(x_csv_path="dataset-files/MH_05_difficult/mav0/imu0/data.csv",
                                                      y_csv_path="dataset-files/MH_05_difficult/mav0/state_groundtruth_estimate0/data.csv",
-                                                     min_window_size=99, max_window_size=100, shuffle=False, noise=None, convert_first=True)
+                                                     min_window_size=200, max_window_size=201, shuffle=False, noise=None, convert_first=True)
 
     dummy_dataset = Subset(euroc_mh5_dataset, range(394))
 
