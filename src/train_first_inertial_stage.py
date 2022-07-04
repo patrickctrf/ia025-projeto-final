@@ -16,7 +16,7 @@ Runs the experiment itself.
     """
 
     model = InertialModule(input_size=6, hidden_layer_size=32, n_lstm_units=3, bidirectional=True, use_amp=True,
-                           output_size=7, training_batch_size=512, epochs=10, device=device, validation_percent=0.2)
+                           output_size=7, training_batch_size=1024, epochs=100, device=device, validation_percent=0.2)
 
     # model.load_state_dict(torch.load("best_model_state_dict.pth"))
     # model = torch.load("best_model.pth")
@@ -137,6 +137,6 @@ if __name__ == '__main__':
                                                      y_csv_path="dataset-files/MH_05_difficult/mav0/state_groundtruth_estimate0/data.csv",
                                                      min_window_size=200, max_window_size=201, shuffle=False, noise=None, convert_first=True)
 
-    dummy_dataset = Subset(euroc_mh5_dataset, range(394))
+    dummy_dataset = Subset(euroc_v1_01_dataset, range(394))
 
     experiment(device=device)

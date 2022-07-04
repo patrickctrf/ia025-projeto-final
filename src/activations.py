@@ -6,8 +6,8 @@ class BnActivation(nn.Module):
         super().__init__()
 
         self.activation = nn.Sequential(
-            nn.BatchNorm1d(num_features=num_features, momentum=0.99),
             nn.LeakyReLU(),
+            nn.BatchNorm1d(num_features=num_features, momentum=0.99),
         )
 
     def forward(self, x):
@@ -19,8 +19,8 @@ class LnActivation(nn.Module):
         super().__init__()
 
         self.activation = nn.Sequential(
-            nn.LayerNorm(normalized_shape=normalized_shape),
             nn.LeakyReLU(),
+            nn.LayerNorm(normalized_shape=normalized_shape),
         )
 
     def forward(self, x):

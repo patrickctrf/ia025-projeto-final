@@ -5,19 +5,18 @@ from threading import Thread, Event
 import torch
 from torch import nn, movedim, absolute
 from torch.cuda.amp import autocast, GradScaler
-from torch.nn import Sequential, Conv1d
-from torch.utils.data import ConcatDataset
+from torch.nn import Sequential, Conv1d, AvgPool1d
+from torch.utils.data import ConcatDataset, Subset
 from tqdm import tqdm
 
+from activations import BnActivation
+from losses import *
+from mydatasets import ParallelBatchTimeseriesDataset, CustomDataLoader
 from ptk.utils import DataManager
 
 # When importing every models from this module, make sure only models are
 # imported
 __all__ = ["InertialModule", "IMUHandler", ]
-
-from mydatasets import ParallelBatchTimeseriesDataset, CustomDataLoader
-from losses import *
-from activations import BnActivation, LnActivation
 
 
 class LSTMLatentFeatures(nn.Module):
@@ -69,7 +68,7 @@ error within CUDA.
 
         self.dense_network = Sequential(
             nn.Linear(self.num_directions * self.hidden_layer_size, 128),
-            LnActivation(128, ),
+            BnActivation(128, ),
             nn.Linear(128, self.output_size)
         )
         # We train using multiple inputs (mini_batch), so we let this cell ready
@@ -98,6 +97,39 @@ input sequence and returns the prediction for the final step.
         # We only want the last output of lstm (end of sequence), that is
         # the reason of '[:,-1,:]'.
         return lstm_out.view(input_seq.shape[0], -1, self.num_directions * self.hidden_layer_size)[:, -1, :]
+
+
+class ResBlock(nn.Module):
+    def __init__(self, n_input_channels=6, n_output_channels=7,
+                 kernel_size=7, stride=1, padding=0, dilation=1,
+                 groups=1, bias=True, padding_mode='zeros'):
+        """
+    ResNet-like block, receives as arguments the same that PyTorch's Conv1D
+    module.
+        """
+        super(ResBlock, self).__init__()
+
+        self.feature_extractor = \
+            Sequential(
+                nn.Conv1d(n_input_channels, n_output_channels, kernel_size,
+                          stride, kernel_size // 2 * dilation, dilation,
+                          groups, bias, padding_mode),
+                BnActivation(n_output_channels),
+                nn.Conv1d(n_output_channels, n_output_channels, kernel_size,
+                          stride, kernel_size // 2 * dilation,
+                          dilation, groups, bias, padding_mode),
+            )
+
+        self.skip_connection = \
+            Sequential(
+                nn.Conv1d(n_input_channels, n_output_channels, 1,
+                          stride, padding, dilation, groups, bias, padding_mode)
+            )
+
+        self.activation = BnActivation(n_output_channels)
+
+    def forward(self, input_seq):
+        return self.activation(self.feature_extractor(input_seq) + self.skip_connection(input_seq))
 
 
 class Conv1DFeatureExtractor(nn.Module):
@@ -141,16 +173,16 @@ error within CUDA.
         # and it casts conv outputs to 1 feature per channel
         pooling_output_size = 1
 
-        n_base_filters = 128
-        n_output_features = 6 * 128
+        n_base_filters = 512
+        n_output_features = 6 * n_base_filters
         self.feature_extractor = \
             Sequential(
-                Conv1d(1 * input_size, 1 * n_base_filters, (3,), dilation=(2,), stride=(1,)), BnActivation(1 * n_base_filters),
-                Conv1d(1 * n_base_filters, 2 * n_base_filters, (3,), dilation=(2,), stride=(1,)), BnActivation(2 * n_base_filters),
-                Conv1d(2 * n_base_filters, 3 * n_base_filters, (3,), dilation=(2,), stride=(1,)), BnActivation(3 * n_base_filters),
-                Conv1d(3 * n_base_filters, 4 * n_base_filters, (3,), dilation=(2,), stride=(1,)), BnActivation(4 * n_base_filters),
-                Conv1d(4 * n_base_filters, 5 * n_base_filters, (3,), dilation=(2,), stride=(1,)), BnActivation(5 * n_base_filters),
-                Conv1d(5 * n_base_filters, n_output_features, (3,), dilation=(2,), stride=(1,)), BnActivation(n_output_features),
+                Conv1d(input_size, n_base_filters, (3,), dilation=(2,), stride=(3,)), AvgPool1d(2, 2), BnActivation(1 * n_base_filters),
+                ResBlock(n_base_filters, n_base_filters, ), AvgPool1d(2, 2),
+                ResBlock(n_base_filters, n_base_filters, ), AvgPool1d(2, 2),
+                ResBlock(n_base_filters, n_base_filters, ), AvgPool1d(2, 2),
+                ResBlock(n_base_filters, n_base_filters, ), AvgPool1d(2, 2),
+                ResBlock(n_base_filters, n_output_features, ),
             )
 
         self.sum_layer = SumLayer()
@@ -159,15 +191,16 @@ error within CUDA.
         self.dense_network = Sequential(
             nn.Flatten(),
             nn.Linear(2 * pooling_output_size * n_output_features, 4096),
-            LnActivation(4096, ),
+            BnActivation(4096, ),
             nn.Linear(4096, self.output_size),
         )
+
         return
 
     def forward(self, input_seq):
         """
-Classic forward method of every PyTorch model, as fast as possible. Receives an
-input sequence and returns the prediction for the final step.
+    Classic forward method of every PyTorch model, as fast as possible. Receives an
+    input sequence and returns the prediction for the final step.
 
         :param input_seq: Input sequence of the time series.
         :return: The prediction in the end of the series.
@@ -211,7 +244,7 @@ class _AttentionLayer(torch.nn.Module):
         # output MLP
         self.mlp = nn.Sequential(
             nn.Linear(embedding_dim, hidden_size),
-            LnActivation(hidden_size),
+            BnActivation(hidden_size),
             nn.Dropout(0.1),
             nn.Linear(hidden_size, embedding_dim),
         )
@@ -267,7 +300,7 @@ class Transformer(torch.nn.Module):
         # tokens (words indexes) embedding and positional embedding
         self.c_embedding = nn.Sequential(
             nn.Linear(input_size, embedding_dim),
-            LnActivation(embedding_dim),
+            BnActivation(embedding_dim),
             nn.Linear(embedding_dim, embedding_dim),
         )
         self.p_embedding = nn.Embedding(max_seq_length, embedding_dim)
@@ -363,12 +396,12 @@ error within CUDA.
         #                        n_lstm_units=n_lstm_units,
         #                        bidirectional=bidirectional)
 
-        # self.feature_extractor = Conv1DFeatureExtractor(input_size=input_size,
-        #                                                 output_size=output_size)
+        self.feature_extractor = Conv1DFeatureExtractor(input_size=input_size,
+                                                        output_size=output_size)
 
-        self.feature_extractor = Transformer(dim=256, n_layers=2,
-                                             input_size=input_size,
-                                             output_size=output_size)
+        # self.feature_extractor = Transformer(dim=256, n_layers=2,
+        #                                      input_size=input_size,
+        #                                      output_size=output_size)
 
         # Assim nao precisamos adaptar a rede densa a uma saida de CNN ou LSTM,
         # ja pegamos a rede adaptada do proprio extrator de
@@ -393,7 +426,7 @@ input sequence and returns the prediction for the final step.
         pos = predictions[:, 0:3]
         quat = torch.nn.functional.normalize(predictions[:, 3:7])
 
-        return torch.cat((pos, quat), 1)
+        return torch.cat((pos, quat), dim=1)
 
     def fit(self):
         """
@@ -410,60 +443,62 @@ overflow the memory.
         # =====DATA-PREPARATION=================================================
         euroc_v1_01_dataset = ParallelBatchTimeseriesDataset(x_csv_path="dataset-files/V1_01_easy/mav0/imu0/data.csv", y_csv_path="dataset-files/V1_01_easy/mav0/state_groundtruth_estimate0/data.csv",
                                                              n_threads=2,
-                                                             min_window_size=180, max_window_size=220, batch_size=self.training_batch_size, shuffle=False, noise=None)
+                                                             min_window_size=195, max_window_size=205, batch_size=self.training_batch_size, shuffle=False, noise=None)
 
         # Esse daqui gera NAN no treino e na validacao, melhor nao usar
         euroc_v2_01_dataset = ParallelBatchTimeseriesDataset(x_csv_path="dataset-files/V2_01_easy/mav0/imu0/data.csv", y_csv_path="dataset-files/V2_01_easy/mav0/state_groundtruth_estimate0/data.csv",
                                                              n_threads=2,
-                                                             min_window_size=180, max_window_size=220, batch_size=self.training_batch_size, shuffle=False, noise=None)
+                                                             min_window_size=195, max_window_size=205, batch_size=self.training_batch_size, shuffle=False, noise=None)
 
         euroc_v2_02_dataset = ParallelBatchTimeseriesDataset(x_csv_path="dataset-files/V2_02_medium/mav0/imu0/data.csv",
                                                              y_csv_path="dataset-files/V2_02_medium/mav0/state_groundtruth_estimate0/data.csv", n_threads=2,
-                                                             min_window_size=180, max_window_size=220, batch_size=self.training_batch_size, shuffle=False, noise=None)
+                                                             min_window_size=195, max_window_size=205, batch_size=self.training_batch_size, shuffle=False, noise=None)
 
         euroc_v2_03_dataset = ParallelBatchTimeseriesDataset(x_csv_path="dataset-files/V2_03_difficult/mav0/imu0/data.csv",
                                                              y_csv_path="dataset-files/V2_03_difficult/mav0/state_groundtruth_estimate0/data.csv", n_threads=2,
-                                                             min_window_size=180, max_window_size=220, batch_size=self.training_batch_size, shuffle=False, noise=None)
+                                                             min_window_size=195, max_window_size=205, batch_size=self.training_batch_size, shuffle=False, noise=None)
 
         euroc_v1_02_dataset = ParallelBatchTimeseriesDataset(x_csv_path="dataset-files/V1_02_medium/mav0/imu0/data.csv",
                                                              y_csv_path="dataset-files/V1_02_medium/mav0/state_groundtruth_estimate0/data.csv", n_threads=2,
-                                                             min_window_size=180, max_window_size=220, batch_size=self.training_batch_size, shuffle=False, noise=None)
+                                                             min_window_size=195, max_window_size=205, batch_size=self.training_batch_size, shuffle=False, noise=None)
 
         euroc_v1_03_dataset = ParallelBatchTimeseriesDataset(x_csv_path="dataset-files/V1_03_difficult/mav0/imu0/data.csv",
                                                              y_csv_path="dataset-files/V1_03_difficult/mav0/state_groundtruth_estimate0/data.csv", n_threads=2,
-                                                             min_window_size=180, max_window_size=220, batch_size=self.training_batch_size, shuffle=False, noise=None)
+                                                             min_window_size=195, max_window_size=205, batch_size=self.training_batch_size, shuffle=False, noise=None)
 
         euroc_mh1_dataset = ParallelBatchTimeseriesDataset(x_csv_path="dataset-files/MH_01_easy/mav0/imu0/data.csv", y_csv_path="dataset-files/MH_01_easy/mav0/state_groundtruth_estimate0/data.csv",
                                                            n_threads=2,
-                                                           min_window_size=180, max_window_size=220, batch_size=self.training_batch_size, shuffle=False, noise=None)
+                                                           min_window_size=195, max_window_size=205, batch_size=self.training_batch_size, shuffle=False, noise=None)
 
         euroc_mh2_dataset = ParallelBatchTimeseriesDataset(x_csv_path="dataset-files/MH_02_easy/mav0/imu0/data.csv", y_csv_path="dataset-files/MH_02_easy/mav0/state_groundtruth_estimate0/data.csv",
                                                            n_threads=2,
-                                                           min_window_size=180, max_window_size=220, batch_size=self.training_batch_size, shuffle=False, noise=None)
+                                                           min_window_size=195, max_window_size=205, batch_size=self.training_batch_size, shuffle=False, noise=None)
 
         euroc_mh3_dataset = ParallelBatchTimeseriesDataset(x_csv_path="dataset-files/MH_03_medium/mav0/imu0/data.csv",
                                                            y_csv_path="dataset-files/MH_03_medium/mav0/state_groundtruth_estimate0/data.csv", n_threads=2,
-                                                           min_window_size=180, max_window_size=220, batch_size=self.training_batch_size, shuffle=False, noise=None)
+                                                           min_window_size=195, max_window_size=205, batch_size=self.training_batch_size, shuffle=False, noise=None)
 
         euroc_mh4_dataset = ParallelBatchTimeseriesDataset(x_csv_path="dataset-files/MH_04_difficult/mav0/imu0/data.csv",
                                                            y_csv_path="dataset-files/MH_04_difficult/mav0/state_groundtruth_estimate0/data.csv", n_threads=2,
-                                                           min_window_size=180, max_window_size=220, batch_size=self.training_batch_size, shuffle=False, noise=None)
+                                                           min_window_size=195, max_window_size=205, batch_size=self.training_batch_size, shuffle=False, noise=None)
 
         euroc_mh5_dataset = ParallelBatchTimeseriesDataset(x_csv_path="dataset-files/MH_05_difficult/mav0/imu0/data.csv",
                                                            y_csv_path="dataset-files/MH_05_difficult/mav0/state_groundtruth_estimate0/data.csv", n_threads=2,
-                                                           min_window_size=180, max_window_size=220, batch_size=self.training_batch_size, shuffle=False, noise=None)
+                                                           min_window_size=195, max_window_size=205, batch_size=self.training_batch_size, shuffle=False, noise=None)
+
+        dummy_dataset = Subset(euroc_v1_01_dataset, range(1))
 
         # room1_tum_dataset = ParallelBatchTimeseriesDataset(x_csv_path="dataset-room1_512_16/mav0/imu0/data.csv", y_csv_path="dataset-room1_512_16/mav0/mocap0/data.csv", n_threads=2,
-        #                                                    min_window_size=40, max_window_size=220, batch_size=self.training_batch_size, shuffle=False, noise=None)
+        #                                                    min_window_size=40, max_window_size=205, batch_size=self.training_batch_size, shuffle=False, noise=None)
         #
         # room2_tum_dataset = ParallelBatchTimeseriesDataset(x_csv_path="dataset-room2_512_16/mav0/imu0/data.csv", y_csv_path="dataset-room2_512_16/mav0/mocap0/data.csv", n_threads=2,
-        #                                                    min_window_size=40, max_window_size=220, batch_size=self.training_batch_size, shuffle=False)
+        #                                                    min_window_size=40, max_window_size=205, batch_size=self.training_batch_size, shuffle=False)
         #
         # room3_tum_dataset = ParallelBatchTimeseriesDataset(x_csv_path="dataset-room3_512_16/mav0/imu0/data.csv", y_csv_path="dataset-room3_512_16/mav0/mocap0/data.csv", n_threads=2,
-        #                                                    min_window_size=180, max_window_size=220, batch_size=self.training_batch_size, shuffle=False, noise=None)
+        #                                                    min_window_size=195, max_window_size=205, batch_size=self.training_batch_size, shuffle=False, noise=None)
         #
         # room4_tum_dataset = ParallelBatchTimeseriesDataset(x_csv_path="dataset-room4_512_16/mav0/imu0/data.csv", y_csv_path="dataset-room4_512_16/mav0/mocap0/data.csv", n_threads=2,
-        #                                                    min_window_size=180, max_window_size=220, batch_size=self.training_batch_size, shuffle=False)
+        #                                                    min_window_size=195, max_window_size=205, batch_size=self.training_batch_size, shuffle=False)
         #
         # room5_tum_dataset = ParallelBatchTimeseriesDataset(x_csv_path="dataset-room5_512_16/mav0/imu0/data.csv", y_csv_path="dataset-room5_512_16/mav0/mocap0/data.csv", n_threads=2,
         #                                                    min_window_size=150, max_window_size=200, batch_size=self.training_batch_size, shuffle=False, noise=None)
@@ -479,7 +514,9 @@ overflow the memory.
 
         train_dataset = ConcatDataset([euroc_v1_01_dataset, euroc_v1_02_dataset,
                                        euroc_mh4_dataset])
+        train_dataset = dummy_dataset
         val_dataset = ConcatDataset([euroc_v2_02_dataset, euroc_mh3_dataset])
+        val_dataset = dummy_dataset
 
         # train_dataset = ConcatDataset([euroc_v1_01_dataset, ])
         # val_dataset = ConcatDataset([euroc_mh3_dataset, ])
