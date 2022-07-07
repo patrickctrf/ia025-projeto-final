@@ -13,6 +13,17 @@ from ptk.timeseries import *
 from ptk.utils import *
 
 
+def get_lr(optimizer):
+    for param_group in optimizer.param_groups:
+        return param_group['lr']
+
+
+def set_lr(optimizer, new_lr=0.01):
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = new_lr
+        return
+
+
 # Funcoes que nao estou mais usando mas que podem ser uteis em algum momento
 
 

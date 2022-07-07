@@ -7,7 +7,7 @@ class BnActivation(nn.Module):
 
         self.activation = nn.Sequential(
             nn.LeakyReLU(),
-            nn.BatchNorm1d(num_features=num_features, momentum=0.99),
+            nn.BatchNorm1d(num_features=num_features, momentum=0.99, affine=False),
         )
 
     def forward(self, x):
