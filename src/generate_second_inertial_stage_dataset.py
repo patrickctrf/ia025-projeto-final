@@ -22,8 +22,8 @@ Runs the experiment itself.
     imu_handler.to(device)
 
     # ===========PREDICAO-TRAJETORIO-INTEIRA====================================
-    input_data = read_csv("dataset-files/dataset-room2_512_16/mav0/imu0/data.csv").to_numpy()
-    output_data = read_csv("dataset-files/dataset-room2_512_16/mav0/mocap0/data.csv").to_numpy()
+    input_data = read_csv("dataset-files/dataset-room2_512_16/mav0/imu0/data.csv").to_numpy() 
+    output_data = read_csv("dataset-files/dataset-room2_512_16/mav0/mocap0/data.csv").to_numpy() 
 
     # =========SCALING======================================================
     # features without timestamp (we do not scale timestamp)
@@ -38,7 +38,7 @@ Runs the experiment itself.
 
     # Replacing scaled data (we kept the original TIMESTAMP)
     input_data[:, 1:] = input_features
-    output_data[:, 1:] = output_features
+    output_data[:, 1:] = output_features 
     # =========end-SCALING==================================================
 
     # Save timestamps for syncing samples.
@@ -69,7 +69,7 @@ Runs the experiment itself.
     dimensoes = ["px", "py", "pz", "qw", "qx", "qy", "qz"]
     for i, dim_name in enumerate(dimensoes):
         plt.close()
-        plt.plot(input_timestamp[0 + offset:][:predict.shape[0]], predict[:, i], output_timestamp, output_features[:, i])
+        plt.plot(input_timestamp[0 + offset:][:predict.shape[0]], predict[:, i], output_timestamp, output_features[:, i]) 
         plt.legend(['predict', 'reference'], loc='upper right')
         plt.title(dim_name)
         plt.savefig(dim_name + "_inteira.png", dpi=200)

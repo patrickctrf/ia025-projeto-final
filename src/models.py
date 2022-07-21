@@ -92,13 +92,13 @@ input sequence and returns the prediction for the final step.
         :return: The prediction in the end of the series.
         """
 
-        lstm_out, self.hidden_cell_output = self.lstm(input_seq, self.hidden_cell_zeros)
+        lstm_out, self.hidden_cell_output = self.lstm(input_seq, self.hidden_cell_zeros) 
 
         # All batch size, whatever sequence length, forward direction and
         # lstm output size (hidden size).
         # We only want the last output of lstm (end of sequence), that is
         # the reason of '[:,-1,:]'.
-        return lstm_out.view(input_seq.shape[0], -1, self.num_directions * self.hidden_layer_size)[:, -1, :]
+        return lstm_out.view(input_seq.shape[0], -1, self.num_directions * self.hidden_layer_size)[:, -1, :] 
 
 
 class ResBlock(nn.Module):
@@ -116,7 +116,7 @@ class ResBlock(nn.Module):
                 nn.Conv1d(n_input_channels, n_output_channels, kernel_size,
                           stride, kernel_size // 2 * dilation, dilation,
                           groups, bias, padding_mode),
-                BnActivation(n_output_channels),
+                BnActivation(n_output_channels), 
                 nn.Conv1d(n_output_channels, n_output_channels, kernel_size,
                           stride, kernel_size // 2 * dilation,
                           dilation, groups, bias, padding_mode),
@@ -210,7 +210,7 @@ error within CUDA.
 
         # As features (px, py, pz, qw, qx, qy, qz) sao os "canais" da
         # convolucao e precisam vir no meio para o pytorch
-        input_seq = movedim(input_seq, -2, -1)
+        input_seq = movedim(input_seq, -2, -1) 
 
         input_seq = self.feature_extractor(input_seq)
 
@@ -265,7 +265,7 @@ class _AttentionLayer(torch.nn.Module):
 
     def forward(self, x_embeddings):
         k = self.w_k(x_embeddings)
-        v = self.w_v(x_embeddings)
+        v = self.w_v(x_embeddings) 
         q = self.w_q(x_embeddings)
 
         scores = torch.matmul(q, k.transpose(1, 2))
@@ -314,7 +314,7 @@ class Transformer(torch.nn.Module):
         # Precisa adicionar o token CLS no inicio de cada sequencia
         inputs = torch.cat((self.CLS.repeat(inputs.shape[0], 1, 1), inputs), dim=1)
 
-        positional_indexes = torch.arange(inputs.shape[1], device=inputs.device).view(1, -1)
+        positional_indexes = torch.arange(inputs.shape[1], device=inputs.device).view(1, -1) 
 
         input_embeddings = self.c_embedding(inputs)
 
